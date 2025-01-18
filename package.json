@@ -1,0 +1,26 @@
+{
+  "name": "dumb-dumb-code-checker",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/main.ts"
+  },
+  "keywords": [],
+  "author": "knilink",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.13",
+    "@vscode/ripgrep": "^1.15.10",
+    "commander": "^13.0.0",
+    "deno": "^2.1.5",
+    "ollama": "^0.5.11",
+    "vscode-languageserver-protocol": "^3.17.5"
+  }
+}
