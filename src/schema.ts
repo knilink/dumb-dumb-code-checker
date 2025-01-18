@@ -18,7 +18,7 @@ export namespace SearchFiles {
             description: 'The search criteria, choose to search by `filename` of by `content`',
             enum: ['filename', 'content'],
           },
-          pattern: { type: 'string', description: 'The matching pattern for the search.' },
+          pattern: { type: 'string', description: 'The regex pattern for the search.' },
         },
         required: ['searchBy', 'query'],
       },

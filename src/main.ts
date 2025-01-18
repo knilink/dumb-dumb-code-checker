@@ -15,20 +15,26 @@ type Iteration = {
 const ollama = new Ollama({ host: config.host });
 
 function getContext(query: string, instruction: string, cycle: Iteration, thought: string = ''): string {
-  const ctx: string[] = ['# Context'];
-  if (query) ctx.push(`## User's original query\n${query}`);
+  const ctx: string[] = [
+    `# Context
+## User's original query
+\`\`\`
+${query}
+\`\`\``,
+  ];
   if (!!cycle.toolRequest)
-    ctx.push(`## Your predecessor's action:
+    ctx.push(`## Your predecessor's action
 \`\`\`json
 ${JSON.stringify(cycle.toolRequest)}
 \`\`\``);
   if (cycle.toolResult)
-    ctx.push(`## Your predecessor's action result:
+    ctx.push(`## Your predecessor's action result
 \`\`\`
 ${cycle.toolResult}
 \`\`\``);
   if (cycle.notes)
-    ctx.push(`## Note from your predecessor:
+    ctx.push(`## Note from your predecessor
+Follow with cares as your predecessor did not have access to its action result thus it did not have as much as information as you do when it came to analyzing and decision making
 \`\`\`txt
 ${cycle.notes}
 \`\`\``);

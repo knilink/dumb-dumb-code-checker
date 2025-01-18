@@ -10,12 +10,16 @@ cd dumb-dumb-code-checker
 npm install
 ```
 
-Then edit `src/config.ts` for preferred model and options.
+Then edit `src/config.ts` for preferred models and options.
 
 ### Run
 Here using this project as an example. For different project, specify a different `--workspace`.
 ```sh
+# please let me know immedediately if you come across with a model smart enough to notice this project is actually itself
 npm run start -- --workspace . --query "what does this stupid project do?" --max-iterations 16
+
+# lol
+npm run start -- -w . -q 'find evidences in this project to prove YOU ARE "dumb-dumb-code-checker"'
 
 # this one is interesting as "model" could mean data model, llm model or else
 npm run start -- -w . -q "how do i use a different model?"

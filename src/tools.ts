@@ -91,7 +91,7 @@ function addLineNumbers(text: string): string {
 
 async function findFile(workdir: string, matcher: string): Promise<string> {
   const rg1 = spawn(rgPath, [workdir, '--files'], { cwd: workdir });
-  const rg2 = spawn(rgPath, [matcher]);
+  const rg2 = spawn(rgPath, [matcher, '-i']);
 
   rg1.stdout.pipe(rg2.stdin);
 
@@ -124,7 +124,7 @@ async function findFile(workdir: string, matcher: string): Promise<string> {
 async function listDir(workdir: string, dirPath: string): Promise<string[]> {
   const fullPath = path.join(workdir, dirPath);
   const files = await fs.promises.readdir(fullPath);
-  return files.map((f) => path.relative(workdir, f));
+  return files.map((f) => path.relative(workdir, path.join(fullPath, f)));
 }
 
 export class Tools {
