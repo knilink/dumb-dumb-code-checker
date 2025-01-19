@@ -4,6 +4,7 @@ import { spawn, ChildProcess } from 'node:child_process';
 import { rgPath } from '@vscode/ripgrep';
 import * as rpc from 'vscode-languageserver-protocol/node.js';
 import { ToolCall } from 'ollama';
+import { languageServerConfigs, LanguageServerConfig } from './config.ts';
 
 import {
   Location,
@@ -29,6 +30,7 @@ const mapping: Record<string, string[]> = {
   javascript: ['.js', '.jsx'],
   json: ['.json'],
   markdown: ['.md'],
+  python: ['.py'],
 };
 
 const knownExtensions: Map<string, string> = new Map(
@@ -127,31 +129,36 @@ async function listDir(workdir: string, dirPath: string): Promise<string[]> {
   return files.map((f) => path.relative(workdir, path.join(fullPath, f)));
 }
 
-export class Tools {
-  private languageServerProcess: ChildProcess;
-  private connection: rpc.MessageConnection;
-  private documentCache: Map<string, TextDocumentItem> = new Map();
+class LanguageServerManager {
+  connections = new Map<string, rpc.MessageConnection>();
 
-  static async create(workdir: string) {
-    const tools = new Tools(workdir);
-    await tools.init();
-    return tools;
+  constructor(protected workdir: string) {}
+
+  async get(languageId: string): Promise<rpc.MessageConnection | undefined> {
+    let connection = this.connections.get(languageId);
+    if (connection) return connection;
+    const config = languageServerConfigs.find(({ languageIds }) => languageIds.includes(languageId));
+    if (!config) return;
+    connection = await LanguageServerManager.createConnection(this.workdir, config);
+    for (const languageId of config.languageIds) {
+      this.connections.set(languageId, connection);
+    }
+    return connection;
   }
-  protected constructor(protected workdir: string) {
-    this.languageServerProcess = spawn('npx', ['deno', 'lsp'], {
-      stdio: 'pipe',
-    });
-    this.connection = rpc.createMessageConnection(
-      new rpc.StreamMessageReader(this.languageServerProcess.stdout),
-      new rpc.StreamMessageWriter(this.languageServerProcess.stdin),
+
+  static async createConnection(workdir: string, config: LanguageServerConfig): Promise<rpc.MessageConnection> {
+    const languageServerProcess = spawn(...config.command);
+    const connection = rpc.createMessageConnection(
+      new rpc.StreamMessageReader(languageServerProcess.stdout),
+      new rpc.StreamMessageWriter(languageServerProcess.stdin),
       console
     );
-    this.connection.listen();
-  }
-  protected async init() {
+    connection.listen();
+
     const initParams: InitializeParams = {
       // At minimum provide these
-      rootUri: `file://${this.workdir}`,
+      rootPath: workdir,
+      rootUri: `file://${workdir}`,
       processId: process.pid,
       capabilities: {
         textDocument: {
@@ -169,20 +176,33 @@ export class Tools {
       //   },
       // ],
     };
-    await this.connection.sendRequest(InitializeRequest.type, initParams);
-    await this.connection.sendNotification(InitializedNotification.type, {});
-    await this.connection.sendNotification(DidChangeConfigurationNotification.type, {
-      settings: {
-        deno: {
-          enable: true,
-          codeLens: {
-            implementations: true,
-            references: true,
-            test: true,
-          },
-        },
-      },
+
+    await connection.sendRequest(InitializeRequest.type, initParams);
+    await connection.sendNotification(InitializedNotification.type, {});
+    await connection.sendNotification(DidChangeConfigurationNotification.type, {
+      settings: config.settings,
     });
+    return connection;
+  }
+}
+
+export class Tools {
+  private languageServerManager: LanguageServerManager;
+  private documentCache: Map<string, TextDocumentItem> = new Map();
+
+  static async create(workdir: string) {
+    const tools = new Tools(workdir);
+    return tools;
+  }
+
+  protected constructor(protected workdir: string) {
+    this.languageServerManager = new LanguageServerManager(workdir);
+  }
+
+  async getConnection(languageId: string): Promise<rpc.MessageConnection> {
+    const connection = await this.languageServerManager.get(languageId);
+    if (!connection) throw new Error(`Language server not supported for "${languageId}"`);
+    return connection;
   }
 
   async searchFiles(params: SearchFiles.Type): Promise<string> {
@@ -209,7 +229,8 @@ ${result}
     const content = await fs.promises.readFile(fullPath, 'utf8');
     const uri = `file://${fullPath}`;
     textDocument = TextDocumentItem.create(uri, languageId, 1, content);
-    await this.connection.sendNotification(DidOpenTextDocumentNotification.type, {
+    const connection = await this.languageServerManager.get(languageId);
+    await connection?.sendNotification(DidOpenTextDocumentNotification.type, {
       textDocument,
     });
     this.documentCache.set(fullPath, textDocument);
@@ -234,6 +255,7 @@ ${prependedContent}
     const uri = `file://${fullPath}`;
     const line = params.line;
     const identifier = params.identifier;
+    const languageId = document.languageId;
     const content = document.text;
     const lineContent = content?.split('\n')[line];
     if (!lineContent) {
@@ -254,21 +276,22 @@ ${prependedContent}
     }
 
     if (params.type === 'definition') {
-      return await this.goToSourceDefinition(uri, line, characters);
+      return await this.goToSourceDefinition(uri, languageId, line, characters);
     } else if (params.type === 'references') {
-      return await this.listReferences(uri, line, characters);
+      return await this.listReferences(uri, languageId, line, characters);
     } else if (params.type === 'implementations') {
-      return await this.listImplementation(uri, line, characters);
+      return await this.listImplementation(uri, languageId, line, characters);
     }
     return `Error: unknown type ${params.type}`;
   }
 
-  async goToSourceDefinition(uri: string, line: number, character: number): Promise<string> {
+  async goToSourceDefinition(uri: string, languageId: string, line: number, character: number): Promise<string> {
     const params: DefinitionParams = {
       textDocument: { uri },
       position: { line, character },
     };
-    const result = await this.connection.sendRequest(DefinitionRequest.type, params);
+    const connection = await this.getConnection(languageId);
+    const result = await connection.sendRequest(DefinitionRequest.type, params);
     let location: LocationLink | Location | null = null;
     if (Array.isArray(result)) {
       location = result[0];
@@ -299,7 +322,7 @@ ${textWithLines}
     return promptSection;
   }
 
-  async listReferences(uri: string, line: number, character: number): Promise<string> {
+  async listReferences(uri: string, languageId: string, line: number, character: number): Promise<string> {
     const params: ReferenceParams = {
       textDocument: {
         uri,
@@ -307,7 +330,8 @@ ${textWithLines}
       position: { line, character },
       context: { includeDeclaration: true },
     };
-    const references = await this.connection.sendRequest(ReferencesRequest.type, params);
+    const connection = await this.getConnection(languageId);
+    const references = await connection.sendRequest(ReferencesRequest.type, params);
     const promptSection = `The references with prepend line number are:
 \`\`\`
 ${await this._formatLocations(references)}
@@ -315,14 +339,15 @@ ${await this._formatLocations(references)}
     return promptSection;
   }
 
-  async listImplementation(uri: string, line: number, character: number): Promise<string> {
+  async listImplementation(uri: string, languageId: string, line: number, character: number): Promise<string> {
     const params: ImplementationParams = {
       textDocument: {
         uri,
       },
       position: { line, character },
     };
-    const res = await this.connection.sendRequest(ImplementationRequest.type, params);
+    const connection = await this.getConnection(languageId);
+    const res = await connection.sendRequest(ImplementationRequest.type, params);
     if (Array.isArray(res)) {
       const locations: Location[] = res.map((loc) => {
         if ('targetRange' in loc) {
@@ -392,11 +417,20 @@ ${await this._formatLocations([res])}
     }
     if (name === ListDir.tool.function.name) {
       const params = typeCheck(ListDir.schema, args);
-      const files = await listDir(this.workdir, params.dirPath || '.');
-      return `\`\`\`
+      try {
+        const files = await listDir(this.workdir, params.dirPath || '.');
+        return `\`\`\`
 ${files.join('\n')}
 \`\`\``;
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+          return `Error: No such file or directory at '${params.dirPath || '.'}'`;
+        }
+        // Optionally handle other error cases
+        return `Error: ${(error as any).message}`;
+      }
     }
     throw new Error(`Unknown function name ${toolCall.function.name}`);
   }
 }
+// npx pyright-langserver --stdio

@@ -50,13 +50,13 @@ const iter0: Iteration = {
   toolResult: '',
 };
 
-const syspmt = `You are a professional typescript static code analyst. Your task it to resolve user's query by following user's instruction.`;
+const syspmt = `You are a professional static code analyst. Your task it to resolve user's query by following user's instruction.`;
 
 const thinkingInstruction = `Now is thinking stage.
 You should think step by step and think critically to analyze the situation in plain text base on what you currently have and decide whether user's query can be resolved or the investigation needs to be continue.
-You may feel lack of information at this stage which is normal because it will take multiple iteration to resolve user's query and the missing information can be acquired later.
-You can optionally make reasonable assumption if this help with your later action.
-To what extent do you think in this stage depends on the complexity of the information you currently have so avoid unnecessarily over thinking.
+You are not allow to make any assumptions which is not directly related current context.
+Your predecessor's action result is the ground truth, while it may or may not be useful depending on the context.
+Your predecessor's note is derived from truth which mean it may or may not be distorted thus you should adopt with thinking critically.
 At the end describe your next direct action in one sentence.
 
 To help your planning, below are actions you can perform during action stage which I'll specify later:
