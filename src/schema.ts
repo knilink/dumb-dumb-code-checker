@@ -117,8 +117,15 @@ export namespace Reporting {
         properties: {
           reason: {
             type: 'string',
-            description: '',
+            description: 'Reason for reporting',
             enum: ['resolved', 'review', 'continue'],
+          },
+          // "evidences" is unused
+          // just hoping adding this can help drawing model's attention back to latest verdict
+          evidences: {
+            type: 'stirng',
+            description:
+              'If the reason is not "continue", provide evidences for support query resolution or to be review',
           },
         },
         required: ['reason'],

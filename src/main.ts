@@ -14,14 +14,25 @@ type Iteration = {
 
 const ollama = new Ollama({ host: config.host });
 
-function getContext(query: string, instruction: string, cycle: Iteration, thought: string = ''): string {
+function getContext(
+  query: string,
+  instruction: string,
+  cycle: Iteration,
+  thought: string = '',
+  init: string = ''
+): string {
   const ctx: string[] = [
     `# Context
-## User's original query
+## User's original query regarding to current code base
 \`\`\`
 ${query}
 \`\`\``,
   ];
+
+  if (init) {
+    ctx.push(`\n${init}\n`);
+  }
+
   if (!!cycle.toolRequest)
     ctx.push(`## Your predecessor's action
 \`\`\`json
@@ -57,7 +68,8 @@ You should think step by step and think critically to analyze the situation in p
 You are not allow to make any assumptions which is not directly related current context.
 Your predecessor's action result is the ground truth, while it may or may not be useful depending on the context.
 Your predecessor's note is derived from truth which mean it may or may not be distorted thus you should adopt with thinking critically.
-At the end describe your next direct action in one sentence.
+In this stage, you MUST ALWAYS think in nature language script and structured data are forbidden.
+At the end describe your next direct action in one sentence and your action target must be this code base unless you are reporting to user.
 
 To help your planning, below are actions you can perform during action stage which I'll specify later:
 - searchFiles: Search file by file name or by content.
@@ -141,6 +153,14 @@ async function run(options: CLIOptions) {
   const tools = await Tools.create(path.resolve(options.workspace));
   console.log(`Querry: ${query}`);
   const iterations: Iteration[] = [iter0];
+  let initContext = `## The project root folder contains following files:
+${await tools.listDir({})}
+`;
+  if (initContext.includes('\nREADME.md\n')) {
+    initContext += `\n## Porject readme
+${await tools.openFile({ filePath: 'README.md' })}
+`;
+  }
   for (let i = 0; i < options.maxIterations; i++) {
     console.log(separator(`ITERATION ${i}`, { char: '=', length: 80, endNewline: true }));
     console.log(separator(`THINKING`, { char: '-', length: 80, endNewline: true }));
@@ -151,7 +171,8 @@ async function run(options: CLIOptions) {
       query,
       '',
       iterations[iterations.length - 1],
-      '' //cycle2.thinking
+      '', //cycle2.thinking
+      i === 0 ? initContext : ''
     );
     const messages: Message[] = [
       { role: 'system', content: syspmt },
@@ -175,11 +196,13 @@ async function run(options: CLIOptions) {
 
     const reportQuery: Message = {
       role: 'user',
-      content: "Base on your analysis above, answer whether user's original query been resolved in one sentense.",
+      content:
+        "Base on your analysis above, answer whether user's original query been resolved in one sentense. If resolved, quote the facts and evidences from predecessor's action result or notes or project's readme to support your verdict.",
     };
 
+    console.log(separator(`VERDICT`, { char: '-', length: 80, endNewline: true }));
     streamRes = await ollama.chat({
-      ...config.summerizing,
+      ...config.summarizing,
       messages: [...messages, reportQuery],
       stream: true,
     });
@@ -193,7 +216,7 @@ async function run(options: CLIOptions) {
         reportMessage,
         {
           role: 'user',
-          content: "Base on your response about whether user's query has been resolved, invoke report tool provided.",
+          content: "Base on your verdict about whether user's query has been resolved, invoke report tool provided.",
         },
       ],
       tools: [Reporting.tool],
@@ -204,9 +227,10 @@ async function run(options: CLIOptions) {
     }
     const args = typeCheck(Reporting.schema, toolRes.message.tool_calls![0].function.arguments);
     if (args.reason !== 'continue') {
+      console.log(args);
       console.log(separator(`RESOLVED`, { char: '-', length: 80, endNewline: true }));
       streamRes = await ollama.chat({
-        ...config.summerizing,
+        ...config.summarizing,
         messages: [
           ...messages,
           reportQuery,
@@ -246,7 +270,7 @@ async function run(options: CLIOptions) {
 
       console.log(separator(`SUMMARIZING`, { char: '-', length: 80, endNewline: true }));
       streamRes = await ollama.chat({
-        ...config.summerizing,
+        ...config.summarizing,
         messages: [
           ...messages,
           {

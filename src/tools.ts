@@ -240,7 +240,9 @@ ${result}
   async openFile(params: OpenFile.Type): Promise<string> {
     const fullPath = path.join(this.workdir, params.filePath);
     const textDocument = await this._openDocument(fullPath);
-    const prependedContent = addLineNumbers(textDocument.text);
+    const prependedContent = ['typescript', 'javascript', 'python'].includes(textDocument.languageId)
+      ? addLineNumbers(textDocument.text)
+      : textDocument.text;
     const promptSegment = `\`\`\`${textDocument.languageId}
 // file://${params.filePath}
 // line numbers prepend for each line starts from line number 0
@@ -401,6 +403,21 @@ ${await this._formatLocations([res])}
     return Object.values(grouped).flat().join('\n');
   }
 
+  async listDir(params: ListDir.Type) {
+    try {
+      const files = await listDir(this.workdir, params.dirPath || '.');
+      return `\`\`\`
+${files.join('\n')}
+\`\`\``;
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        return `Error: No such file or directory at '${params.dirPath || '.'}'`;
+      }
+      // Optionally handle other error cases
+      return `Error: ${(error as any).message}`;
+    }
+  }
+
   async call(toolCall: ToolCall): Promise<string> {
     const { name, arguments: args } = toolCall.function;
     if (name === SearchFiles.tool.function.name) {
@@ -417,18 +434,7 @@ ${await this._formatLocations([res])}
     }
     if (name === ListDir.tool.function.name) {
       const params = typeCheck(ListDir.schema, args);
-      try {
-        const files = await listDir(this.workdir, params.dirPath || '.');
-        return `\`\`\`
-${files.join('\n')}
-\`\`\``;
-      } catch (error) {
-        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-          return `Error: No such file or directory at '${params.dirPath || '.'}'`;
-        }
-        // Optionally handle other error cases
-        return `Error: ${(error as any).message}`;
-      }
+      return this.listDir(params);
     }
     throw new Error(`Unknown function name ${toolCall.function.name}`);
   }

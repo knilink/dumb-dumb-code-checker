@@ -14,7 +14,7 @@ type Config = {
   host: string;
   thinking: OllamaConfig;
   tool_calling: OllamaConfig;
-  summerizing: OllamaConfig;
+  summarizing: OllamaConfig;
 };
 
 export const config: Config = {
@@ -24,21 +24,23 @@ export const config: Config = {
     keep_alive: -1,
     options: {
       num_ctx: 8192 * 2,
-      temperature: 1.2,
+      temperature: 0.7,
       num_predict: 8192,
+      repeat_penalty: 1.2,
     },
   },
   tool_calling: {
     model: 'qwen2.5:32b-instruct-q4_K_M',
+    // model: 'mistral-large:123b-instruct-2407-q2_K',
     keep_alive: -1,
     options: {
       num_ctx: 8192 * 2,
       temperature: 0,
+      num_predict: 500,
     },
   },
-  summerizing: {
-    // model: 'qwen2.5:32b-instruct-q4_K_M',
-    model: 'mistral-large:123b-instruct-2407-q2_K',
+  summarizing: {
+    model: 'qwen2.5:32b-instruct-q4_K_M',
     keep_alive: -1,
     options: {
       num_ctx: 8192 * 2,
