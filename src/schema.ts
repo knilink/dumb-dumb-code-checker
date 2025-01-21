@@ -44,7 +44,7 @@ export namespace OpenFile {
         properties: {
           filePath: {
             type: 'string',
-            description: 'The path to the file to be opened.',
+            description: 'The path to the file relative to the project root directory.',
           },
         },
         required: ['filePath'],
@@ -53,7 +53,7 @@ export namespace OpenFile {
   };
 
   export const schema = Type.Object({
-    filePath: Type.String({ description: 'The path to the file to be opened.' }),
+    filePath: Type.String(),
   });
 
   export type Type = Static<typeof schema>;
@@ -73,7 +73,7 @@ export namespace CodeNavigation {
             description: 'The type of navigation: "definition", "references", or "implementations".',
             enum: ['definition', 'references', 'implementations'],
           },
-          filePath: { type: 'string', description: 'The relative of the file containing the symbol.' },
+          filePath: { type: 'string', description: 'The path to the file relative to the project root directory.' },
           line: { type: 'number', description: 'The line number where the symbol is located.' },
           identifier: {
             type: 'string',
@@ -151,7 +151,8 @@ export namespace ListDir {
         properties: {
           dirPath: {
             type: 'string',
-            description: 'The path of the directory to list, default to project root if not provided.',
+            description:
+              'The path to the directory relative to the project root to be listed, default to project root if not provided.',
           },
         },
         required: [],

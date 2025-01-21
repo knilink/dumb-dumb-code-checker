@@ -65,14 +65,14 @@ const syspmt = `You are a professional static code analyst. Your task it to reso
 
 const thinkingInstruction = `Now is thinking stage.
 You should think step by step and think critically to analyze the situation in plain text base on what you currently have and decide whether user's query can be resolved or the investigation needs to be continue.
-You are not allow to make any assumptions which is not directly related current context.
+Assumptions can ONLY be made against unclear entities in user query when no clearifications to be found within the context.
 Your predecessor's action result is the ground truth, while it may or may not be useful depending on the context.
 Your predecessor's note is derived from truth which mean it may or may not be distorted thus you should adopt with thinking critically.
 In this stage, you MUST ALWAYS think in nature language script and structured data are forbidden.
 At the end describe your next direct action in one sentence and your action target must be this code base unless you are reporting to user.
 
 To help your planning, below are actions you can perform during action stage which I'll specify later:
-- searchFiles: Search file by file name or by content.
+- searchFiles: Case insensitive file searching by file name or by content with regex pattern matching.
 - openFile: Open a file by path to view its content.
 - codeNavigation: Go to definition, list references or implementations of a symbol.
 - listDir: List the files and directories in a given directory.
@@ -101,6 +101,7 @@ It's suggested to include and not limited to:
 - Statement of facts written to help clarifying user's query which is highly recommended. Examples: "foo is a file", "bar is a function".
 - Describe your general goal, plans and state at your current stage in one sentence.
 - Code blocks with its original line numbers and file path
+The content of your notes MUST be supported by facts and evidences from context section, any assumptions or hypothesis from your thinking stage are PROHIBIT.
 Your entire response will be the content of your notes and must being using nature language unless referring code.
 Write with your own words! Do not copy paste contents from the context!
 Be aware that there will be a compressing stage later on your note which means the longer your note is the more likely the key informations will be lost by compressing. Please be concise and focus on key points to ensure your message is clear and effective without unrelated commentary.
@@ -195,7 +196,7 @@ ${await tools.openFile({ filePath: 'README.md' })}
     const reportQuery: Message = {
       role: 'user',
       content:
-        "Base on your analysis above, answer whether user's original query been resolved in one sentense. If resolved, quote the facts and evidences from predecessor's action result or notes or project's readme to support your verdict.",
+        "Base on your analysis and decision above, answer whether user's original query been resolved in one sentense. If resolved, quote the facts and evidences from predecessor's action result or notes or project's readme to support your verdict.",
     };
 
     console.log(separator(`VERDICT`, { char: '-', length: 80, endNewline: true }));

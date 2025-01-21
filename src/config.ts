@@ -18,14 +18,16 @@ type Config = {
 };
 
 export const config: Config = {
-  host: 'http://localhost:11434',
+  host: process.env.OLLAMA_HOST || 'http://localhost:11434',
   thinking: {
+    // model: 'deepseek-r1:32b-qwen-distill-q4_K_M',
     model: 'qwq:32b-preview-q4_K_M',
     keep_alive: -1,
     options: {
       num_ctx: 8192 * 2,
       temperature: 0.7,
-      num_predict: 8192,
+      // temperature: 2,
+      num_predict: 8192 / 2,
       repeat_penalty: 1.2,
     },
   },
