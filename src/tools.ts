@@ -5,6 +5,7 @@ import { rgPath } from '@vscode/ripgrep';
 import * as rpc from 'vscode-languageserver-protocol/node.js';
 import { ToolCall } from 'ollama';
 import { languageServerConfigs, LanguageServerConfig } from './config.ts';
+import { createLineNumberConverter, LineNumberBase } from './utils.ts';
 
 import {
   Location,
@@ -41,7 +42,8 @@ function isScript(languageId: string): boolean {
   return ['typescript', 'javascript'].includes(languageId);
 }
 
-async function search(workdir: string, pattern: string): Promise<string> {
+async function search(workdir: string, pattern: string, lineNumberBase: number): Promise<string> {
+  const convertLineNumber = createLineNumberConverter(LineNumberBase.ripgrep, lineNumberBase);
   const rg = spawn(rgPath, [workdir, '--heading', '--line-number', '-S', '-e', pattern], { cwd: workdir });
 
   let output = '';
@@ -63,7 +65,8 @@ async function search(workdir: string, pattern: string): Promise<string> {
         if (!line) {
           return line;
         } else if (/^[0-9]+:/.test(line)) {
-          return line;
+          const [lineNumber, ...rest] = line.split(':');
+          return [convertLineNumber(+lineNumber), ...rest].join(':');
         }
         return path.relative(workdir, line);
       })
@@ -75,7 +78,7 @@ async function search(workdir: string, pattern: string): Promise<string> {
   }
 }
 
-function addLineNumbers(text: string): string {
+function addLineNumbers(text: string, lineNumberBase: number): string {
   // Split the text into lines based on newline characters
   const lines = text.split('\n');
 
@@ -85,7 +88,7 @@ function addLineNumbers(text: string): string {
   // Map over the array of lines to prepend line numbers with padding
   return lines
     .map((line, index) => {
-      const paddedIndex = index.toString().padStart(maxDigits, ' ');
+      const paddedIndex = (index + lineNumberBase).toString().padStart(maxDigits, ' ');
       return `${paddedIndex}: ${line}`;
     })
     .join('\n');
@@ -209,7 +212,7 @@ export class Tools {
     const result =
       params.searchBy === 'filename'
         ? await findFile(this.workdir, params.pattern)
-        : await search(this.workdir, params.pattern);
+        : await search(this.workdir, params.pattern, LineNumberBase.ddcc);
 
     if (!result) {
       return 'No file found.';
@@ -224,6 +227,7 @@ ${result}
 
   async _openDocument(fullPath: string): Promise<TextDocumentItem> {
     let textDocument = this.documentCache.get(fullPath);
+    if (textDocument) return textDocument;
     const extname = path.extname(fullPath);
     const languageId = knownExtensions.get(extname) ?? 'unknown';
     const content = await fs.promises.readFile(fullPath, 'utf8');
@@ -241,48 +245,51 @@ ${result}
     const fullPath = path.join(this.workdir, params.filePath);
     const textDocument = await this._openDocument(fullPath);
     const prependedContent = ['typescript', 'javascript', 'python'].includes(textDocument.languageId)
-      ? addLineNumbers(textDocument.text)
+      ? addLineNumbers(textDocument.text, LineNumberBase.ddcc)
       : textDocument.text;
     const promptSegment = `\`\`\`${textDocument.languageId}
 // file://${params.filePath}
-// line numbers prepend for each line starts from line number 0
+// line numbers prepend for each line starts from line number ${LineNumberBase.ddcc}
 ${prependedContent}
 \`\`\``;
     return promptSegment;
   }
 
   async codeNavigation(params: CodeNavigation.Type): Promise<string> {
+    const convertLineNumber = createLineNumberConverter(LineNumberBase.ddcc, LineNumberBase.languageServer);
+
     const fullPath = path.join(this.workdir, params.filePath);
     const document = await this._openDocument(fullPath);
     const uri = `file://${fullPath}`;
-    const line = params.line;
+    const ddccLine = params.line;
     const identifier = params.identifier;
     const languageId = document.languageId;
     const content = document.text;
-    const lineContent = content?.split('\n')[line];
+    const lineContent = content?.split('\n')[ddccLine - LineNumberBase.ddcc];
     if (!lineContent) {
-      throw new Error(`No line ${line} in \`${uri}\``);
+      throw new Error(`No line ${ddccLine} in \`${uri}\``);
     }
     const regex = new RegExp(`\\b${identifier}\\b`, 'g');
     const matches = [...lineContent.matchAll(regex)];
     let characters: number = matches[0].index;
     if (matches.length === 0) {
     } else if (matches.length > 1) {
-      if (params.nthId === undefined) {
-        throw new Error(`Multiple matches for \`${identifier}\` in line ${line} of \`${uri}\``);
+      if (params.nthId === undefined || params.nthId === null) {
+        throw new Error(`Multiple matches for \`${identifier}\` in line ${ddccLine} of \`${uri}\``);
       }
       characters = matches[params.nthId].index;
       if (characters == undefined) {
-        throw new Error(`No match for \`${identifier}\` in line ${line} of \`${uri}\``);
+        throw new Error(`No match for \`${identifier}\` in line ${ddccLine} of \`${uri}\``);
       }
     }
 
+    const lspLine = convertLineNumber(ddccLine);
     if (params.type === 'definition') {
-      return await this.goToSourceDefinition(uri, languageId, line, characters);
+      return await this.goToSourceDefinition(uri, languageId, lspLine, characters);
     } else if (params.type === 'references') {
-      return await this.listReferences(uri, languageId, line, characters);
+      return await this.listReferences(uri, languageId, lspLine, characters);
     } else if (params.type === 'implementations') {
-      return await this.listImplementation(uri, languageId, line, characters);
+      return await this.listImplementation(uri, languageId, lspLine, characters);
     }
     return `Error: unknown type ${params.type}`;
   }
@@ -314,11 +321,11 @@ ${prependedContent}
 ${document.text}
 \`\`\``;
     }
-    const textWithLines = addLineNumbers(document.text);
+    const textWithLines = addLineNumbers(document.text, LineNumberBase.ddcc);
     const promptSection = `\`\`\`${document.languageId}
 // file://${relativePath}
 // line numbers prepend for each line starts from line number 0
-// definition starts from line ${lineNumber}
+// definition starts from line ${lineNumber + 1}
 ${textWithLines}
 \`\`\``;
     return promptSection;
@@ -374,15 +381,14 @@ ${await this._formatLocations([res])}
   }
 
   async _formatLocations(locations: Location[] | null) {
+    const convertLineNumber = createLineNumberConverter(LineNumberBase.languageServer, LineNumberBase.ddcc);
     if (!locations) {
       return 'Not found';
     }
     const grouped: { [key: string]: string[] } = {};
     const maxDigits =
-      locations
-        .map((loc) => loc.range.end.line)
-        .reduce((s, i) => (s > i ? s : i), -1)
-        .toString().length + 1;
+      convertLineNumber(locations.map((loc) => loc.range.end.line).reduce((s, i) => (s > i ? s : i), -1)).toString()
+        .length + 1;
 
     for (const location of locations) {
       const fullPath = location.uri.slice('file://'.length);
@@ -394,9 +400,9 @@ ${await this._formatLocations([res])}
       const lineContent = content?.split('\n')[location.range.start.line];
       const lineNumber = location.range.start.line;
       if (!lineContent) {
-        throw new Error(`No line ${location.range.start.line} in \`${fullPath}\``);
+        throw new Error(`No line ${convertLineNumber(location.range.start.line)} in \`${fullPath}\``);
       }
-      const paddedLineNumber = lineNumber.toString().padStart(maxDigits, ' ');
+      const paddedLineNumber = convertLineNumber(lineNumber).toString().padStart(maxDigits, ' ');
       grouped[location.uri].push(`${paddedLineNumber}: ${lineContent}`);
     }
 

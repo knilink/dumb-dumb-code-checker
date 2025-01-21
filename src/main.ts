@@ -88,8 +88,6 @@ async function streamResponse(response: AsyncIterable<ChatResponse>): Promise<st
   return res.join('').trim();
 }
 
-const temperature = 0.8;
-
 function notingInsturction(req: any): string {
   const inst = `Your next action request is:
 \`\`\`json
