@@ -167,6 +167,30 @@ export namespace ListDir {
   export type Type = Static<typeof schema>;
 }
 
+export namespace SubmitReleaventFiles {
+  export const tool: Tool = {
+    type: 'function',
+    function: {
+      name: 'submitReleaventFiles',
+      description:
+        "Submit a list of files that are relevant to the user's query. The path is relative to the project root.",
+      parameters: {
+        type: 'object',
+        properties: {
+          filePaths: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['filePaths'],
+      },
+    },
+  };
+
+  export const schema = Type.Object({
+    filePaths: Type.Array(Type.String()),
+  });
+
+  export type Type = Static<typeof schema>;
+}
+
 function formatErrorMessage(errors: ValueErrorIterator): string {
   const message = Array.from(errors)
     .map((e) => `- ${e.path}: ${e.message}`)

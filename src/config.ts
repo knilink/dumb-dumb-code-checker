@@ -43,6 +43,7 @@ export const config: Config = {
   },
   summarizing: {
     model: 'qwen2.5:32b-instruct-q4_K_M',
+    // model: 'mistral-large:123b-instruct-2407-q2_K',
     keep_alive: -1,
     options: {
       num_ctx: 8192 * 2,

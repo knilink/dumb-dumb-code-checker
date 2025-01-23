@@ -220,8 +220,7 @@ export class Tools {
       return `The following files were found:
 \`\`\`
 ${result}
-\`\`\`
-`;
+\`\`\``;
     }
   }
 
@@ -445,4 +444,3 @@ ${files.join('\n')}
     throw new Error(`Unknown function name ${toolCall.function.name}`);
   }
 }
-// npx pyright-langserver --stdio

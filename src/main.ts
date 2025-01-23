@@ -1,9 +1,19 @@
 import path from 'node:path';
 import { Ollama, Message, ChatResponse } from 'ollama';
-import { Command } from 'commander';
-import { SearchFiles, OpenFile, CodeNavigation, Reporting, typeCheck, ListDir } from './schema.ts';
+import { Command, Option } from 'commander';
+import {
+  SearchFiles,
+  OpenFile,
+  CodeNavigation,
+  Reporting,
+  ListDir,
+  SubmitReleaventFiles,
+  typeCheck,
+} from './schema.ts';
 import { Tools } from './tools.ts';
 import { config } from './config.ts';
+import { separator, streamResponse } from './utils.ts';
+import { initializeContext } from './initContext.ts';
 
 type Iteration = {
   notes: string;
@@ -78,16 +88,6 @@ To help your planning, below are actions you can perform during action stage whi
 - listDir: List the files and directories in a given directory.
 `;
 
-async function streamResponse(response: AsyncIterable<ChatResponse>): Promise<string> {
-  const res: string[] = [];
-  for await (const part of response) {
-    res.push(part.message.content);
-    process.stdout.write(part.message.content);
-  }
-  console.log('');
-  return res.join('').trim();
-}
-
 function notingInsturction(req: any): string {
   const inst = `Your next action request is:
 \`\`\`json
@@ -109,56 +109,89 @@ Be aware that there will be a compressing stage later on your note which means t
   return inst;
 }
 
-function separator(
-  label: string,
-  options: {
-    char?: string;
-    length?: number;
-    endNewline?: boolean;
-  } = {}
-): string {
-  const { char = '-', length = 80, endNewline = true } = options;
-
-  if (char.length !== 1) {
-    throw new Error('Padding character must be exactly one character long');
-  }
-
-  // Account for label and spacing
-  const labelWithSpaces = ` ${label} `;
-  const remainingLength = length - labelWithSpaces.length;
-
-  if (remainingLength < 2) {
-    throw new Error('Separator length must be greater than label length plus spacing');
-  }
-
-  // Calculate padding lengths
-  const leftPadding = Math.floor(remainingLength / 2);
-  const rightPadding = remainingLength - leftPadding;
-
-  // Build separator
-  const result = char.repeat(leftPadding) + labelWithSpaces + char.repeat(rightPadding);
-
-  return endNewline ? result + '\n' : result;
-}
-
 interface CLIOptions {
   workspace: string;
   query: string;
   maxIterations: number;
+  initCtx: string;
+}
+
+async function initializeContext3(query: string, tools: Tools): Promise<{ context: string; resolved: boolean }> {
+  const files = await tools.searchFiles({ searchBy: 'filename', pattern: '' });
+  const message = {
+    role: 'user',
+    content: `You are a professional code analyst. Listing all files within the given project result in:
+${files}
+
+Select a list of files exists in list above that are likely to contain information required to resovle the following query.
+\`\`\`
+${query}
+\`\`\`
+The list is sorted by relevance.
+You should select files with their dependencies in mind.
+All path are relative to project root.
+`,
+  };
+
+  let streamRes = await ollama.chat({
+    ...config.summarizing,
+    messages: [message],
+    stream: true,
+  });
+
+  const fileListText = await streamResponse(streamRes);
+  let toolRes = await ollama.chat({
+    ...config.tool_calling,
+    messages: [
+      {
+        role: 'user',
+        content: `Submit the file paths in following content using given tool:
+\`\`\`
+${fileListText}
+\`\`\``,
+      },
+    ],
+    tools: [SubmitReleaventFiles.tool],
+  });
+
+  const params = typeCheck(SubmitReleaventFiles.schema, toolRes.message.tool_calls![0].function.arguments);
+  const contents = await Promise.all(params.filePaths.map((path) => tools.openFile({ filePath: path })));
+
+  const sumMessage = {
+    role: 'user',
+    content: `Here is a list of files in the repository that may help you answer the query:
+${contents.join('\n\n')}
+
+# INSTRUCTION
+You are an expert software engineer. Extract all useful information provided above which could help answering the following user query. Includes file path and original line numbers when referering code blocks.
+
+# USER QUERY
+\`\`\`
+${query}
+\`\`\`
+`,
+  };
+
+  streamRes = await ollama.chat({
+    ...config.summarizing,
+    messages: [sumMessage],
+    stream: true,
+  });
+
+  const sumResult = await streamResponse(streamRes);
+
+  return { context: sumResult, resolved: false };
 }
 
 async function run(options: CLIOptions) {
   const query = options.query;
   const tools = await Tools.create(path.resolve(options.workspace));
-  console.log(`Querry: ${query}`);
+
   const iterations: Iteration[] = [iter0];
-  let initContext = `## The project root folder contains following files:
-${await tools.listDir({})}
-`;
-  if (initContext.includes('\nREADME.md\n')) {
-    initContext += `\n## Porject readme
-${await tools.openFile({ filePath: 'README.md' })}
-`;
+  const initContext = await initializeContext(options.initCtx, ollama, query, tools);
+  if (initContext.resolved) {
+    console.log(separator(`END`, { char: '-', length: 80, endNewline: true }));
+    return;
   }
   for (let i = 0; i < options.maxIterations; i++) {
     console.log(separator(`ITERATION ${i}`, { char: '=', length: 80, endNewline: true }));
@@ -171,7 +204,7 @@ ${await tools.openFile({ filePath: 'README.md' })}
       '',
       iterations[iterations.length - 1],
       '', //cycle2.thinking
-      i === 0 ? initContext : ''
+      i === 0 ? initContext.context : ''
     );
     const messages: Message[] = [
       { role: 'system', content: syspmt },
@@ -196,7 +229,7 @@ ${await tools.openFile({ filePath: 'README.md' })}
     const reportQuery: Message = {
       role: 'user',
       content:
-        "Base on your analysis and decision above, answer whether user's original query been resolved in one sentense. If resolved, quote the facts and evidences from predecessor's action result or notes or project's readme to support your verdict.",
+        "Base on your analysis and decision above, answer whether user's original query has been resolved in one sentense. If resolved, quote the facts and evidences from predecessor's action result or notes or project's readme to support your verdict.",
     };
 
     console.log(separator(`VERDICT`, { char: '-', length: 80, endNewline: true }));
@@ -293,6 +326,11 @@ program
   .description(' LLM Static Code Analysis Agent Equipped with Code Navigation Tools ')
   .requiredOption('-w, --workspace <path>', 'Path to the workspace folder')
   .requiredOption('-q, --query <string>', 'Query string to process')
+  .addOption(
+    new Option('--init-ctx <string>', 'The type of context to initialize')
+      .choices(['none', 'readme', 'relevant-files'])
+      .default('readme')
+  )
   .option('-m, --max-iterations <number>', 'Maximum number of iterations', parseInt, 10);
 
 program.parse(process.argv);

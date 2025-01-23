@@ -1,6 +1,6 @@
 # Dumb Dumb Code Checker
 
-Slow and simple but somewhat working code analysis agent that can navigate through typescript code base.
+Slow and simple but somewhat working code analysis agent that can navigate through code base.
 
 ## Quick start
 ### Installation
@@ -16,17 +16,18 @@ Then edit `src/config.ts` for preferred models and options.
 Here using this project as an example. For different project, specify a different `--workspace`.
 ```sh
 # please let me know immedediately if you come across with a model smart enough to notice this project is actually itself
-OLLAMA_HOST='http://localhost:11434' npm run start -- --workspace . --query "what does this stupid project do?" --max-iterations 16
+OLLAMA_HOST='http://localhost:11434' npm run start -- --workspace . --query "what does this stupid project do?" --max-iterations 16 --init-ctx=none
 
 # lol
 npm run start -- -w . -q 'find evidences in this project to prove YOU ARE "dumb-dumb-code-checker"'
 
 # this one is interesting as "model" could mean data model, llm model or else
-npm run start -- -w . -q "how do i use a different model?"
+npm run start -- -w . -q "how do i use a different model?" --init-ctx=none
 
 npm run start -- -w . -q "getting connect ECONNREFUSED 127.0.0.1:11434"
 
-npm start -- -w . -q "is kakapo the dumbest?"
+# should know it's unrelevant and ask for clarification straight away
+npm start -- -w . -q "is calling kakapo dumb offensive?" --init-ctx=relevant-files
 ```
 
 ## Suggested models
@@ -34,7 +35,7 @@ This is base my experience testing with open source models.
 ### Thinking
 Chain of thought model is highly recommended.
 - `qwq:32b-preview-q4_K_M`: creative but heavily hallucinating, suggested to use with a decent summarizer to filter out noises, recommended temperature 0.7 ~ 1.2
-- `deepseek-r1:32b-qwen-distill-q4_K_M`: concise and stable but less creative, easily influenced by action history and not being able to think out of box. `qwq` is preferred over this model
+- `deepseek-r1:32b-qwen-distill-q4_K_M`: concise and stable but less creative, being path dependence and not able to think out of box. `qwq` is preferred over this model
 
 ### Summarizing
 Models with decent reasoning capabilities will be more likely to capture key information and filter out noise.
